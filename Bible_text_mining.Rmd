@@ -1,0 +1,237 @@
+---
+title: "Biblical Proportions"
+output: html_document
+---
+
+Analyze the text of the bible.  
+
+## Q1: Read in the file using any R function you like and store each verse in a text array. After which print the top 20 verses. (Remove the top two lines which contain the title.)
+
+```{r}
+setwd("~/Desktop/Winter/ML/week4")
+bible = readLines("ascii_bible.txt")
+bible = array(bible)
+bible = bible[bible !=""] # remove empty lines 
+```
+
+```{r}
+#remove 66 book titles 
+book = grep("Book ", bible)
+bible = bible[-book]
+
+library(stringr)
+
+#store each verse in a text array
+a = grep("[[:digit:]]{3}:[[:digit:]]{3}",bible)
+for (i in length(bible):1){
+  if (i %in% a ==  FALSE){
+    bible[i-1] = paste(bible[i-1],bible[i])
+    bible = bible[-i]
+  }
+}
+ 
+bible = gsub("        ","",bible) #remove the spaces 
+print(head(bible,20)) 
+```
+
+## Q2: How many verses are there in total? 
+```{r}
+print(length(bible))
+```
+There are 31102 verses.
+
+## Q3: Each verse has the number "CCC:VVV" where CCC is the chapter number and VVV is the verse number. How many chapters are there? 
+
+```{r}
+chs = substr(bible,1,3)
+print(length(unique(chs)))
+```
+
+There are 150 chapters 
+
+## Q4: Extract an array for the verse numbers, and also one for the verse text.
+```{r}
+pattern =":[[:digit:]]{3}"
+vn = str_extract(bible,pattern)
+verse_number = array(vn)
+head(verse_number)
+```
+
+```{r}
+pattern_2 = "[[:digit:]]{3}:[[:digit:]]{3}"
+verse_text = gsub(pattern_2,"",bible)
+head(verse_text)
+```
+
+## Q5: Lower case all text.
+```{r}
+l_versetext = tolower(verse_text)
+head(l_versetext)
+```
+
+## Q6: Convert the text of all verses into a Corpus using the **tm** package. 
+```{r}
+library(tm)
+ctext = Corpus(VectorSource(l_versetext))
+ctext
+```
+
+## Q7: Remove all punctuation. Use a corpus function for this. How many unique words are there in the bible? 
+```{r}
+ctext = tm_map(ctext, removePunctuation)
+print(ctext)
+``` 
+
+```{r}
+tdm = TermDocumentMatrix(ctext,control=list(minWordLength=1))
+print(tdm)
+```
+
+There are 12646 unique words in the bible. 
+
+## Q8: Remove all stopwords. Now how many unique terms are there? 
+```{r}
+ctext = tm_map(ctext,removeWords,stopwords("english"))
+ctext
+
+tdm = TermDocumentMatrix(ctext,control=list(minWordLength=1))
+print(tdm)
+```
+There are 12550 unique terms. 
+
+## Q9: Now stem the text, to remove multiplicity of similar words of the same root. 
+```{r}
+ctext2 = tm_map(ctext, stemDocument, mc.cores=1)  #This is stemmed text 
+```
+
+## Q10: How many distinct words are there in the bible, after stemming?
+```{r}
+tdm = TermDocumentMatrix(ctext2,control=list(minWordLength=1))
+print(tdm)
+```
+After stemming, there are 9120 distinct words. 
+
+## Q11: Convert the TDM into a matrix and find the 50 most common words in the bible. 
+```{r}
+tdm_mat = as.matrix(tdm)
+print(dim(tdm_mat))
+
+words = row.names(tdm_mat)
+wordcount = rowSums(tdm_mat)
+res = sort(wordcount,index.return=TRUE,decreasing=TRUE)
+print(head(words[res$ix],50))
+```
+
+## Q12: Make a wordcloud of the top 100 words in the bible. 
+```{r}
+library(wordcloud)
+
+tdm2 = TermDocumentMatrix(ctext,control=list(minWordLength=1))
+tdm3 = as.matrix(tdm2)
+wordcount = sort(rowSums(tdm3),decreasing=TRUE)
+tdm_names = names(wordcount)
+print(cbind(tdm_names[1:100],wordcount[1:100]))
+```
+
+```{r}
+wordcloud(tdm_names[1:100],wordcount[1:100])
+```
+
+## Q13: Mood score the original text of the bible (before stemming)
+```{r}
+HIDict = readLines("inqdict.txt")
+dict_pos = HIDict[grep("Pos",HIDict)]
+poswords = NULL
+for (s in dict_pos) {
+	s = strsplit(s,"#")[[1]][1]
+	poswords = c(poswords,strsplit(s," ")[[1]][1])
+}
+dict_neg = HIDict[grep("Neg",HIDict)]
+negwords = NULL
+for (s in dict_neg) {
+	s = strsplit(s,"#")[[1]][1]
+	negwords = c(negwords,strsplit(s," ")[[1]][1])
+}
+
+poswords = unique(tolower(poswords))
+negwords = unique(tolower(negwords))
+```
+
+```{r}
+#CONVERT CORPUS INTO ARRAY OF STRINGS AND FLATTEN
+txt = NULL
+for (j in 1:length(ctext)) {
+  txt = c(txt,ctext[[j]]$content)
+}
+txt = paste(txt,collapse=" ")
+#print(txt)
+```
+
+```{r}
+# Mood Score the text 
+txt = unlist(strsplit(txt," "))
+#print(txt)
+posmatch = match(txt,poswords)
+numposmatch = length(posmatch[which(posmatch>0)])
+negmatch = match(txt,negwords)
+numnegmatch = length(negmatch[which(negmatch>0)])
+print("Number of Positive, Negative Words")
+print(c(numposmatch,numnegmatch))
+print(numposmatch/(numposmatch+numnegmatch))
+```
+
+There are 31213 positive words and 28122 negative words. Or before stemming (but after clean-up stopwords), the mood score is 0.526047 positive.
+
+## Q14: Find the main 3 topics in the bible, and the top 25 words in each topic. Can you find an interpretation of each topic?
+```{r}
+library(SnowballC)
+library(text2vec)
+
+#Stem an array of text
+txt = as.character(l_versetext)
+
+stem_text = function(text) {
+    result = paste(wordStem(unlist(word_tokenizer(text))),collapse=" ")
+}
+
+txt = unlist(lapply(txt,stem_text))
+print(head(txt))
+```
+
+```{r}
+stopw = c(stem_text(stopwords('en')),stopwords('en'))
+
+#Tokenize and process
+tokens = txt %>% tolower %>% word_tokenizer()
+it = itoken(tokens)
+v = create_vocabulary(it, stopwords = stopw) %>%
+  prune_vocabulary(term_count_min=5)
+print(v)
+```
+
+```{r}
+vectrzr = vocab_vectorizer(v, grow_dtm = TRUE, skip_grams_window = 5)
+dtm = create_dtm(it, vectrzr)
+print(dim(dtm))
+```
+
+```{r}
+#Do LDA
+lda = LatentDirichletAllocation$new(n_topics=3, v)
+lda$fit(dtm,n_iter = 25)
+doc_topics = lda$fit_transform(dtm,n_iter = 25)
+print(dim(doc_topics))
+```
+
+```{r}
+#Get word vectors by topic
+topic_wv = lda$get_word_vectors()
+print(dim(topic_wv))
+```
+
+```{r}
+#Plot LDA
+library(LDAvis)
+lda$plot()
+```
+
